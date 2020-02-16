@@ -1,0 +1,115 @@
+import simplejson as json
+
+json_file = open(r'./config.json')
+line = json_file.read()
+print "%s" %line
+
+data = json.loads("%s" %line)
+
+domain_name  = '{{ domain_name }}'
+domain_path  = '{{domainroot}}/%s' %domain_name
+production_mode = data['domain']['prod_mode']
+admin_name = data['domain']['admin']['servername']
+admin_user = "{{domain_username}}"
+admin_pass = "{{domain_password}}"
+admin_listen_port = '{{admin_ListenPort}}'
+
+
+
+print('domain_name                 : [%s]' % domain_name);
+print('domain_path                 : [%s]' % domain_path);
+print('production_mode             : [%s]' % production_mode);
+print('admin name                  : [%s]' % admin_name);
+print('admin user                  : [%s]' % admin_user);
+print('admin pass                  : [%s]' % admin_pass);
+print('admin_listen_port           : [%s]' % admin_listen_port);
+
+
+# Open default domain template
+# ============================
+readTemplate("{{wlshome}}/common/templates/wls/wls.jar")
+
+set('Name', domain_name)
+setOption('DomainName', domain_name)
+
+
+
+# Configure the Administration Server and SSL port.
+# =================================================
+cd('/Servers/AdminServer')
+set('Name', admin_name)
+set('ListenAddress', '')
+set('ListenPort', int(admin_listen_port))
+
+
+# Define the user password for weblogic
+# =====================================
+cd(('/Security/%s/User/weblogic') % domain_name)
+cmo.setName("%s" % admin_user)
+cmo.setPassword("%s" % admin_pass)
+
+
+# Create Machine
+# ================
+print "Creating Machines"
+for machine in data['domain']['machines']:
+    machine_name = machine['name']
+    cd('/')
+    mn = create(machine_name,'Machine')
+    if (machine_name != ""):
+        print "\tSetting Machine Name",machine_name
+        mn.setName(machine_name)
+    print "Done with Machine Creation"
+
+
+
+# Create Managed Servers
+# =======================
+for server in data['domain']['servers']:
+    servername = server['name']
+    port = server ['port']
+    
+    print "Creating Managed Server"
+    cd ('/')
+    sobj = create(servername,'Server')
+    sobj.setName(servername)
+    sobj.setListenPort(int(port)) 
+    # Listen on all available IPs and channels
+    sobj.setListenAddress('')
+
+
+# Create Cluster
+# ==================
+for cluster in data['domain']['clusters']:
+    clustername = cluster['name']
+
+    print "Creating Cluster"
+    cd ('/')
+    cobj = create(clustername,'Cluster')
+
+
+# Write the domain and close the domain template
+# ==============================================
+setOption('OverwriteDomain', 'true')
+setOption('ServerStartMode',production_mode)
+
+# Create Node Manager
+# ===================
+cd('/NMProperties')
+set('ListenAddress','')
+set('ListenPort',5556)
+set('CrashRecoveryEnabled', 'true')
+set('NativeVersionEnabled', 'true')
+set('StartScriptEnabled', 'false')
+set('SecureListener', 'false')
+set('LogLevel', 'FINEST')
+
+
+# Write Domain
+# ============
+writeDomain(domain_path)
+closeTemplate()
+
+# Exit WLST
+# =========
+exit()

@@ -1,0 +1,15 @@
+# EC2 Server userid
+userid: weblogic
+
+# Files to copy
+wls_instl_jarfile: fmw_12.2.1.3.0_wls.jar
+jdk_binary_tarfile: server-jre-8u191-linux-x64.tar.gz
+
+
+# Paths
+oracle_home: "/opt/oracle"
+wlshome: "/opt/oracle/wlserver"
+domainroot: "/opt/oracle/domains"
+
+# Hostnames
+hostnames: [ "MWINODE01", "MWINODE02" ]

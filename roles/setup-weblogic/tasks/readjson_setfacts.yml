@@ -1,0 +1,31 @@
+- name: Read JSON and Save it as Variable
+  shell: "cat {{ oracle_home }}/config.json"
+  register: result
+
+- name: save the Json data to a Variable as a Fact
+  set_fact: 
+    jsondata: "{{ result.stdout | from_json }}"
+
+- name: setDomainName
+  set_fact:
+    domain_name: "{{ jsondata | json_query(jmesquery) }}"
+  vars: 
+    jmesquery: 'domain.name'
+
+- name: setDomainUsername
+  set_fact: 
+    domain_username: "{{ jsondata | json_query(jmesquery) }}"
+  vars:
+    jmesquery: 'domain.user'
+
+- name: setDomainPassword
+  set_fact: 
+    domain_password: "{{ jsondata | json_query(jmesquery) }}"
+  vars:
+    jmesquery: 'domain.password'
+
+- name: setadmin_Listenport
+  set_fact:
+    admin_ListenPort: "{{ jsondata | json_query(jmesquery) }}"
+  vars:
+    jmesquery: 'domain.admin.listenport'

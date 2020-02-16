@@ -1,0 +1,386 @@
+---
+- name:  Set hostname on both Machines
+  become: yes
+  become_user: root
+  hostname: 
+    name: "{{ item.hostname }}"
+  when: "{{ item.host == inventory_hostname }}"
+  with_items:
+    - { hostname: "{{ hostnames[0] }}", host: "{{ groups['launched'][0] }}" } 
+    - { hostname: "{{ hostnames[1] }}", host: "{{ groups['launched'][1] }}" }
+
+- name: Making sure the hostname is updated
+  debug: var=ansible_hostname
+
+# - name: Update the /etc/hosts file with node name
+#   tags: etchostsupdate
+#   become: yes
+#   become_user: root
+#   lineinfile:
+#     dest: "/etc/hosts"
+#     regexp: ".*\t{{ hostvars[item]['ansible_hostname']}}\t{{ hostvars[item]['ansible_hostname']}}"
+#     line: "{{ hostvars[item]['ansible_default_ipv4']['address'] }}\t{{ hostvars[item]['ansible_hostname']}}\t{{ hostvars[item]['ansible_hostname']}}"
+#     state: present
+#     backup: yes
+#   register: etchostsupdate
+#   when: ansible_hostname != "{{ item }}" or ansible_hostname == "{{ item }}"
+#   with_items: "{{groups['launched']}}"
+
+# Enable this if you are running this Weblogic Creation in already running EC2 instances
+# - name: Update the /etc/hosts file with node name
+#   tags: etchostsupdate
+#   become: yes
+#   become_user: root
+#   lineinfile:
+#     dest: "/etc/hosts"
+#     regexp: ".*\t{{ hostvars[item]['ansible_hostname']}}\t{{ hostvars[item]['ansible_hostname']}}"
+#     line: "{{ inventory_hostname }}\t{{ hostvars[item]['ansible_hostname']}}\t{{ hostvars[item]['ansible_hostname']}}"
+#     state: present
+#     backup: yes
+#   register: etchostsupdate
+#   when: inventory_hostname != "{{ item }}" or inventory_hostname == "{{ item }}"
+#   with_items: "{{groups['launched']}}"
+
+# Enable this if you are running this Weblogic Creation in already running EC2 instances
+- name: Update the /etc/hosts file with node name
+  tags: etchostsupdate
+  become: yes
+  become_user: root
+  lineinfile:
+    dest: "/etc/hosts"
+    regexp: ".*\t{{ hostvars[item]['ansible_hostname']}}\t{{ hostvars[item]['ansible_hostname']}}"
+    line: "{{ hostvars[item]['ansible_env'].SSH_CONNECTION.split(' ')[2] }}\t{{ hostvars[item]['ansible_hostname']}}\t{{ hostvars[item]['ansible_hostname']}}"
+    state: present
+    backup: yes
+  register: etchostsupdate
+  when: inventory_hostname != "{{ item }}" or inventory_hostname == "{{ item }}"
+  with_items: "{{groups['launched']}}"
+
+- name: install Necassary tools on the remote server
+  become: yes
+  become_user: root
+  tags: installtools
+  yum:
+    name: "{{item}}"
+    state: present
+  register: installtools
+  with_items:
+    - "unzip"
+    - "gawk"
+
+- name: Create a unix user group - weblogic
+  become: yes
+  become_user: root
+  tags: app,groupcreate
+  group: 
+    name: "{{ userid }}"
+    state: present
+
+- name: Create a unix user and map to weblogic group
+  become: yes
+  become_user: root
+  tags: app,usercreate
+  user:
+    name: "{{ userid }}"
+    comment: "weblogic user"
+    uid: 102
+    group: "{{ userid }}"
+    state: present
+
+- name: Create a ORACLE_HOME directory
+  become: yes
+  become_user: root
+  tags: app
+  file:
+    dest: "{{oracle_home}}"
+    mode: 0755
+    owner: weblogic
+    group: weblogic
+    state: directory
+
+- name : Copy the JDK and Weblogic Installation files to ORACLE_HOME
+  become: yes
+  become_user: "{{ userid }}"
+  tags: app,cpbinaries
+  copy:
+    src: "{{ item }}"
+    dest: "{{ oracle_home }}"
+    mode: 0755
+  with_items:
+    - "{{ wls_instl_jarfile }}"
+    - "{{ jdk_binary_tarfile }}"
+    - "oraInst.loc"
+    - "install.file"
+    - "DemoIdentity.jks"
+    - "config.json"
+
+- include: readjson_setfacts.yml 
+
+- name: Copy the Template files 
+  become: yes
+  become_user: "{{ userid }}"
+  tags: cpscripts
+  template:
+     src: "{{ item.src }}"
+     dest: "{{ oracle_home }}/{{item.dest}}"
+     mode: 0755
+  with_items:
+    - { src: 'CreateDomain.sh.j2', dest: 'CreateDomain.sh' }
+    - { src: 'create-wls-domain.py.j2', dest: 'create-wls-domain.py' }
+    - { src: 'Map-Resources.j2', dest: 'Map-Resources.py' }
+
+
+- name: Install java
+  become: yes
+  become_user: "{{ userid }}"
+  tags: javainstall
+  shell: "tar xvfz {{ oracle_home }}/{{ jdk_binary_tarfile }}"
+  args:
+    chdir: "{{ oracle_home }}"
+  register: javainstall
+
+
+- name: Crate a Symbolic link to java
+  become: yes
+  file:
+    src: "{{oracle_home}}/{{ javainstall.stdout_lines[0] }}/bin/java"
+    dest: /usr/bin/java
+    owner: root
+    group: root
+    state: link
+  when: "javainstall.stdout_lines[0] is defined"
+
+- name : Validate Java
+  become: yes
+  become_user: "{{ userid }}"
+  tags: app,vjava
+  command: "java -version"
+  register: javaver
+
+- name: Update Java Security Random
+  become: yes
+  become_user: "{{ userid }}"
+  tags: javarandom
+  lineinfile:
+      path: "{{oracle_home}}/{{ javainstall.stdout_lines[0] }}/jre/lib/security/java.security"
+      regexp: "securerandom.source=file:/dev/random"
+      line: "securerandom.source=file:/tmp/big.random.file"
+      state: "present"
+      backup: yes
+  register: javarandom
+
+
+- debug:
+    msg: " Java Version Found {{ javaver.stderr }}"
+
+- name: Install Weblogic 
+  become: yes
+  become_user: "{{ userid }}"
+  tags: installweblogic,app
+  register: wlsinstall
+  shell: "java -jar {{ oracle_home}}/fmw*.jar -silent -invPtrLoc {{oracle_home}}/oraInst.loc -responseFile {{oracle_home}}/install.file -ignoreSysPrereqs -force -novalidation ORACLE_HOME={{oracle_home}} INSTALL_TYPE='WebLogic Server'"
+  args:
+    chdir: "{{ oracle_home }}"
+  failed_when: "'failed' in wlsinstall.stderr"
+  changed_when: "'already installed' not in wlsinstall.stdout"
+
+
+- name: Download SimpleJSON Python 2.2 Package
+  become: yes
+  become_user: "{{ userid }}"
+  tags: downloadjsonpy
+  register: downloadjsonpy
+  unarchive:
+     src: https://github.com/simplejson/simplejson/archive/python2.2.zip
+     dest: "/tmp/"
+     mode: 0755
+     remote_src: yes
+     creates: "/tmp/simplejson-python2.2/simplejson"
+
+- name: Copy the SimpleJSON into the JythonLib Location
+  become: yes
+  become_user: "{{ userid }}"
+  tags: installjsonpy
+  register: installjsonpy
+  copy:
+    src: "/tmp/simplejson-python2.2/simplejson"
+    dest: "{{ wlshome }}/common/wlst/"
+    remote_src: yes
+    mode: 0755
+
+- name: Convert the JSON to Single line String
+  become: yes
+  become_user: "{{ userid }}"
+  shell: |
+   awk -v RS= '{$1=$1}1' config.json > config-tmp.json
+   mv config-tmp.json config.json
+  args:
+    chdir: "{{ oracle_home }}"
+  register: convertjson
+  tags: convertjson
+
+- name: Set WLST Environment and Create Domain
+  tags: app,createdomain
+  become: yes
+  become_user: "{{ userid }}"
+  shell:  ". ./CreateDomain.sh|tee -a /tmp/testfile"
+  register: setwlsenv
+  args:
+    chdir: "{{ oracle_home }}"
+  when: "{{ inventory_hostname == groups['launched'][0] }}"
+  environment:
+          USER_MEM_ARGS: "-Djava.security.egd=file:/tmp/big.random.file"
+          CONFIG_JVM_ARGS: "-Djava.security.egd=file:/tmp/big.random.file"
+  failed_when: '"Exiting WebLogic Scripting Tool" not in setwlsenv.stdout'        
+
+- debug:
+    msg: "{{ setwlsenv.stdout_lines }}"
+  when: "{{ inventory_hostname == groups['launched'][0] }}"
+
+
+- name: validating if the AdminServer is already started and running
+  tags: amprevalidate
+  register: amprevalidate
+  ignore_errors: true
+  wait_for:
+    host: localhost
+    port: "{{admin_ListenPort}}"
+    delay: 10
+    timeout: 30
+    state: started
+  when: "{{inventory_hostname == groups['launched'][0]}}"
+
+
+- name: Start the AdminServer
+  tags: startadminserver
+  become: yes
+  become_user: "{{ userid }}"
+  shell: "nohup ./startWebLogic.sh > adminserver.log &"
+  args:
+    chdir: "{{oracle_home}}/domains/{{domain_name}}/bin/"
+  register: startadminserver
+  run_once: yes
+  when: "{{inventory_hostname == groups['launched'][0] }} and amprevalidate is failed"
+  environment:
+          USER_MEM_ARGS: "-Djava.security.egd=file:/tmp/big.random.file"
+          CONFIG_JVM_ARGS: "-Djava.security.egd=file:/tmp/big.random.file"
+
+
+- name: wait for the adminserver to start and open the port
+  tags: amvalidate
+  wait_for:
+    host: localhost
+    port: "{{admin_ListenPort}}"
+    delay: 10
+    timeout: 120
+    state: started
+  when: "{{inventory_hostname == groups['launched'][0]}}"
+
+- name: Map Resources - Cluster and Machine
+  tags: mapresources
+  become: yes
+  become_user: "{{ userid }}"
+  shell:  "source {{oracle_home}}/domains/{{domain_name}}/bin/setDomainEnv.sh && java weblogic.WLST {{ oracle_home }}/Map-Resources.py"
+  register: mapresources
+  args:
+    chdir: "{{ oracle_home }}"
+  when: "{{ inventory_hostname == groups['launched'][0] }}"
+  environment:
+          USER_MEM_ARGS: "-Djava.security.egd=file:/tmp/big.random.file" 
+          CONFIG_JVM_ARGS: "-Djava.security.egd=file:/tmp/big.random.file"
+
+
+- name: pack command execution
+  become: yes
+  become_user: "{{ userid }}"
+  shell: "{{ wlshome }}/common/bin/pack.sh -domain={{domainroot}}/{{domain_name}} -template=/tmp/mwi.jar -template_name=remote_managed -managed=true"
+  register: packcommand
+  run_once: true
+  tags: app,packit
+  failed_when: "packcommand.stderr"
+  when: "{{ inventory_hostname == groups['launched'][0] }}"
+
+- name: display pack template
+  become: yes
+  become_user: "{{ userid }}"
+  tags: packit
+  run_once: true
+  command: "ls -lrt /tmp/mwi.jar"
+  register: output
+  failed_when: " 'No' in output.stderr"
+  when: "{{ inventory_hostname == groups['launched'][0] }}"
+
+- name: change permission
+  become: yes
+  become_user: "{{ userid }}"
+  tags: packit
+  run_once: true
+  file:
+    path: "{{item}}"
+    mode: 0775
+  with_items:
+    - "/tmp/mwi.jar"
+  when: "{{ inventory_hostname == groups['launched'][0] }}"
+
+- include: sshkey-exchange-t2.yaml 
+
+- name: Copy the file
+  tags: sync,packit
+  synchronize:
+    src: "{{ item }}"
+    dest: "{{ item }}"
+    mode: push
+  delegate_to: "{{groups['launched'][0]}}"
+  register: syncfile
+  with_items:
+   - "/tmp/mwi.jar"
+  when: "{{ inventory_hostname == groups['launched'][1] }}"
+
+- name: Run the unpack operation
+  become: yes
+  become_user: "{{ userid }}"
+  shell: "{{ wlshome }}/common/bin/unpack.sh -domain={{domainroot}}/{{domain_name}} -template=/tmp/mwi.jar"
+  register: unpack
+  tags: app,unpack,packit
+  when: "{{inventory_hostname == groups['launched'][1]}}"
+
+
+
+- name: set the SSL listener to false in nodemanager.properties file
+  tags: replaceline
+  become: yes
+  become_user: "{{ userid }}"
+  lineinfile:
+    dest: "{{ domainroot}}/{{ domain_name }}/nodemanager/nodemanager.properties"
+    regexp: '{{item.from}}'
+    line: '{{item.to}}'
+    state: present
+    backup: yes
+  register: replaceline
+  with_items:
+     - { from: "^SecureListener=true" , to: "SecureListener=false" }
+     - { from: "^ListenAddress=localhost" , to: "ListenAddress=" }
+
+- name: start the nodemanager
+  async: 1
+  poll: 0
+  tags: startnodemanager
+  become: yes
+  become_user: "{{ userid }}"
+  shell: "./startNodeManager.sh > nodemanager.log &"
+  args:
+    chdir: "{{domainroot}}/{{domain_name}}/bin/"
+  register: startNodemanager
+  environment:
+        USER_MEM_ARGS: "-Djava.security.egd=file:/tmp/big.random.file"
+        CONFIG_JVM_ARGS: "-Djava.security.egd=file:/tmp/big.random.file"
+
+
+- name: wait for the nodemanager to start and open the port
+  tags: nmvalidate
+  wait_for:
+    host: "localhost"
+    port: 5556
+    delay: 10
+    timeout: 120
+    state: started

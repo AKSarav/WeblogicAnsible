@@ -1,0 +1,7 @@
+ec2_access_key: "***************************"
+ec2_secret_key: "***************************"
+key_name: aksarav-aws
+region: us-east-1
+image: ami-02eac2c0129f6376b
+id: "mwi-test03"
+sec_group: "{{ id }}-sec"
