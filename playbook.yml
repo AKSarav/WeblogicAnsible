@@ -2,12 +2,13 @@
 - name: Weblogic AWS Infrastructure
   hosts: localhost
   connection: local
-  gather_facts: False
+  # gather_facts: False
+  gather_facts: true
   vars:
     - ansible_python_interpreter: "/usr/local/bin/python"
 
-  roles:
-    - role: create-ec2
+  # roles:
+  #   - role: create-ec2
   
 - hosts: launched   
   roles:

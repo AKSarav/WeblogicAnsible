@@ -1,8 +1,10 @@
-[localhost:vars]
-ansible_python_interpreter="/usr/local/bin/python"
+[launched]
+mwiapp01
+mwiapp02
 
-[elsed]
-192.168.43.11 ansible_ssh_user=vagrant ansible_ssh_host=127.0.0.1 ansible_ssh_port=2222
-192.168.43.12 ansible_ssh_user=vagrant ansible_ssh_host=127.0.0.1 ansible_ssh_port=2220
 
+[launched:vars]
+ansible_ssh_user=vagrant
+ansible_ssh_private_key_file=~/.vagrant.d/insecure_private_key
+ansible_ssh_common_args='-o StrictHostKeyChecking=no'
 

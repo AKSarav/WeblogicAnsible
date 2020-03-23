@@ -25,6 +25,9 @@
                 },
                 {
                     "name": "App2Cluster"
+                },
+                {
+                    "name": "App3Cluster"
                 }
             ],
             "servers": [
@@ -36,21 +39,33 @@
                 },
                 {
                     "name": "ms2",
-                    "port": 9002,
+                    "port": 9001,
                     "machine": "MWINODE02",
                     "cluster": "App2Cluster"
                 },
                 {
                     "name": "ms3",
-                    "port": 9003,
+                    "port": 9002,
                     "machine": "MWINODE01",
                     "cluster": "App1Cluster"
                 },
                 {
                     "name": "ms4",
-                    "port": 9004,
+                    "port": 9002,
                     "machine": "MWINODE02",
                     "cluster": "App2Cluster"
+                },
+                {
+                    "name": "ms5",
+                    "port": 9003,
+                    "machine": "MWINODE01",
+                    "cluster": "App3Cluster"
+                },
+                {
+                    "name": "ms6",
+                    "port": 9003,
+                    "machine": "MWINODE02",
+                    "cluster": "App3Cluster"
                 }
             ]
            
